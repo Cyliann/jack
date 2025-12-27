@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	api "github.com/Cyliann/jack/ytmusicapi"
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -52,9 +53,11 @@ func newModel() model {
 	}
 
 	if len(os.Args[1:]) > 0 {
-		m.urls = os.Args[1:]
+		query := strings.Join(os.Args[1:], " ")
+		id := api.Search(query)[0].Id
+		m.urls = []string{fmt.Sprintf("https://music.youtube.com/playlist?list=%s", id)}
 	} else {
-		fmt.Printf("%s No urls provided. Aborting.\n", errorStyle)
+		fmt.Printf("%s No query provided. Aborting.\n", errorStyle)
 		os.Exit(1)
 	}
 
