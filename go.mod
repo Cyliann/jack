@@ -1,4 +1,4 @@
-module example.com/muclic-go
+module github.com/Cyliann/jack
 
 go 1.24.0
 
