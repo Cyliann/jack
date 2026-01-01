@@ -3,9 +3,9 @@ package tui
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 
@@ -28,6 +28,7 @@ type model struct {
 	progressChan chan tea.Msg
 
 	lastProgress ytdlp.ProgressUpdate
+	state        AppState
 }
 
 var (
@@ -48,6 +49,7 @@ func NewModel() model {
 			progress.WithWidth(40),
 		),
 		progressChan: make(chan tea.Msg),
+		state:        StateInstallingDependencies,
 	}
 
 	if len(os.Args[1:]) > 0 {
@@ -55,8 +57,7 @@ func NewModel() model {
 		id := api.Search(query)[0].Id
 		m.urls = []string{fmt.Sprintf("https://music.youtube.com/playlist?list=%s", id)}
 	} else {
-		fmt.Printf("%s No query provided. Aborting.\n", errorStyle)
-		os.Exit(1)
+		log.Fatalf("%s No query provided. Aborting.\n", errorStyle)
 	}
 
 	for _, uri := range m.urls {
@@ -72,78 +73,45 @@ func NewModel() model {
 	return m
 }
 
-type MsgToolsVerified struct {
-	Resolved []*ytdlp.ResolvedInstall
-	Error    error
-}
-
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
-		// If yt-dlp/ffmpeg/ffprobe isn't installed yet, download and cache the binaries for further use.
-		// Note that the download/installation of ffmpeg/ffprobe is only supported on a handful of platforms,
-		// and so it is still recommended to install ffmpeg/ffprobe via other means.
-		func() tea.Msg {
-			// On NixOS you cannot run dynamically linked binaries, so we can't install yt-dlp from github.
-			// We rely on it being installed externally and only install ffmpeg
-			if runtime.GOOS == "linux" && containstString("nixos", "/etc/os-release") {
-				resolved, err := ytdlp.InstallFFmpeg(context.TODO(), nil)
-				return MsgToolsVerified{Resolved: []*ytdlp.ResolvedInstall{resolved}, Error: err}
-			} else {
-				resolved, err := ytdlp.InstallAll(context.TODO())
-				return MsgToolsVerified{Resolved: resolved, Error: err}
-			}
-		},
+		installDeps,
 		m.spinner.Tick,
 	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	// handle window resizing
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+
+	// handle keypresses
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc", "q":
 			return m, tea.Quit
 		}
+
+	// if all tools are present and verified
 	case MsgToolsVerified:
 		if msg.Error != nil {
-			return m, tea.Sequence(
-				tea.Printf("%s error installing/verifying tools: %s", errorStyle, msg.Error),
-				tea.Quit,
-			)
+			return printErrorAndExit(m, msg, "error installing/verifying tools")
 		}
-
+		m.state = StateDownloading // TODO: Prompt user for imput and search
+		// start downloading and listen for progress
 		return m, tea.Batch(m.initiateDownload, listenForProgress(m.progressChan))
-	case MsgProgress:
-		m.lastProgress = msg.Progress
-		cmds := []tea.Cmd{m.progress.SetPercent(msg.Progress.Percent() / 100)}
 
-		if m.lastProgress.Status == ytdlp.ProgressStatusFinished {
-			cmds = append(cmds, tea.Printf(
-				"%s downloaded %s (%s)",
-				successStyle,
-				fileStyle.Render(fmt.Sprintf("%s - %s", *m.lastProgress.Info.Artist, *m.lastProgress.Info.Title)),
-				titleStyle.Render(*m.lastProgress.Info.Filename),
-			))
-		}
-		if m.lastProgress.Status == ytdlp.ProgressStatusError {
-			cmds = append(cmds, tea.Printf(
-				"%s error downloading: %s",
-				errorStyle,
-				*m.lastProgress.Info.URL,
-			))
-		}
-		return m, tea.Sequence(cmds...)
+	case MsgProgress:
+		return handleProgress(m, msg)
+
 	case MsgFinished:
 		m.done = true
-		if msg.Err != nil {
-			return m, tea.Sequence(
-				tea.Printf("%s error downloading urls: %s", errorStyle, msg.Err),
-				tea.Quit,
-			)
+		if msg.Error != nil {
+			return printErrorAndExit(m, msg, "error downloading urls")
 		}
 		return m, tea.Quit
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -158,13 +126,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-type MsgProgress struct {
-	Progress ytdlp.ProgressUpdate
-}
+func (m model) View() string {
+	switch m.state {
+	case StateInstallingDependencies:
+		return doneStyle.Render(m.spinner.View() + " installing dependencies...\n")
 
-type MsgFinished struct {
-	Result *ytdlp.Result
-	Err    error
+	case StateUserInput:
+		// TODO: prompt user for input
+		return ""
+
+	case StateDownloading:
+		return handleDownloadingView(m)
+	}
+	return ""
 }
 
 func (m model) initiateDownload() tea.Msg {
@@ -177,11 +151,32 @@ func (m model) initiateDownload() tea.Msg {
 
 	result, err := dl.Run(context.TODO(), m.urls...)
 
-	return MsgFinished{Result: result, Err: err}
+	return MsgFinished{Result: result, Error: err}
 }
 
-func (m model) View() string {
-	// " <spinner> <status> <file> <GAP> <progress> [eta: <eta>] [size: <size>]"
+func handleProgress(m model, msg MsgProgress) (model, tea.Cmd) {
+	m.lastProgress = msg.Progress
+	cmds := []tea.Cmd{m.progress.SetPercent(msg.Progress.Percent() / 100)}
+
+	if m.lastProgress.Status == ytdlp.ProgressStatusFinished {
+		cmds = append(cmds, tea.Printf(
+			"%s downloaded %s (%s)",
+			successStyle,
+			fileStyle.Render(fmt.Sprintf("%s - %s", *m.lastProgress.Info.Artist, *m.lastProgress.Info.Title)),
+			titleStyle.Render(*m.lastProgress.Info.Filename),
+		))
+	}
+	if m.lastProgress.Status == ytdlp.ProgressStatusError {
+		cmds = append(cmds, tea.Printf(
+			"%s error downloading: %s",
+			errorStyle,
+			*m.lastProgress.Info.URL,
+		))
+	}
+	return m, tea.Sequence(cmds...)
+}
+
+func handleDownloadingView(m model) string {
 
 	if m.lastProgress.Status == "" {
 		return doneStyle.Render(m.spinner.View() + " fetching url information...\n")
@@ -191,6 +186,7 @@ func (m model) View() string {
 		return doneStyle.Render(fmt.Sprintf("downloaded %d urls.\n", len(m.urls)))
 	}
 
+	// " <spinner> <status> <file> <GAP> <progress> [eta: <eta>] [size: <size>]"
 	spin := m.spinner.View()
 	status := string(m.lastProgress.Status)
 	prog := m.progress.View()

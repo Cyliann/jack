@@ -1,9 +1,7 @@
-// example from: https://github.com/lrstanley/go-ytdlp/blob/master/_examples/bubble-dl/main.go
 package main
 
 import (
-	"fmt"
-	"os"
+	"log"
 
 	"github.com/Cyliann/jack/tui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,7 +13,6 @@ func main() {
 	core = tea.NewProgram(tui.NewModel())
 	_, err := core.Run()
 	if err != nil {
-		fmt.Printf("error running program: %v\n", err) //nolint:forbidigo
-		os.Exit(1)
+		log.Fatalf("error running program: %v\n", err)
 	}
 }
