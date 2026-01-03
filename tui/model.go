@@ -2,16 +2,15 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
-	"net/url"
-	"os"
 	"strings"
 	"time"
 
 	api "github.com/Cyliann/jack/ytmusicapi"
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dustin/go-humanize"
@@ -26,9 +25,9 @@ type model struct {
 	progress     progress.Model
 	done         bool
 	progressChan chan tea.Msg
-
 	lastProgress ytdlp.ProgressUpdate
 	state        AppState
+	ti           textinput.Model
 }
 
 var (
@@ -42,6 +41,9 @@ var (
 )
 
 func NewModel() model {
+	ti := textinput.New()
+	ti.Placeholder = "Enter your search query"
+
 	m := model{
 		spinner: spinner.New(),
 		progress: progress.New(
@@ -50,23 +52,24 @@ func NewModel() model {
 		),
 		progressChan: make(chan tea.Msg),
 		state:        StateInstallingDependencies,
+		ti:           ti,
 	}
 
-	if len(os.Args[1:]) > 0 {
-		query := strings.Join(os.Args[1:], " ")
-		id := api.Search(query)[0].Id
-		m.urls = []string{fmt.Sprintf("https://music.youtube.com/playlist?list=%s", id)}
-	} else {
-		log.Fatalf("%s No query provided. Aborting.\n", errorStyle)
-	}
-
-	for _, uri := range m.urls {
-		_, err := url.Parse(uri)
-		if err != nil {
-			fmt.Printf("%s unvalid URL specified %q: %s\n", errorStyle, uri, err) //nolint:forbidigo
-			os.Exit(1)
-		}
-	}
+	// if len(os.Args[1:]) > 0 {
+	// 	query := strings.Join(os.Args[1:], " ")
+	// 	id := api.Search(query)[0].Id
+	// 	m.urls = []string{fmt.Sprintf("https://music.youtube.com/playlist?list=%s", id)}
+	// } else {
+	// 	log.Fatalf("%s No query provided. Aborting.\n", errorStyle)
+	// }
+	//
+	// for _, uri := range m.urls {
+	// 	_, err := url.Parse(uri)
+	// 	if err != nil {
+	// 		fmt.Printf("%s unvalid URL specified %q: %s\n", errorStyle, uri, err) //nolint:forbidigo
+	// 		os.Exit(1)
+	// 	}
+	// }
 
 	m.spinner.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
 
@@ -88,9 +91,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// handle keypresses
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "esc", "q":
+		switch msg.Type {
+		case tea.KeyCtrlC, tea.KeyEscape:
 			return m, tea.Quit
+		case tea.KeyEnter:
+			if m.state == StateUserInput {
+				return m, m.search
+			}
+		}
+
+		if m.state == StateUserInput {
+			var cmd tea.Cmd
+			m.ti, cmd = m.ti.Update(msg)
+			return m, cmd
 		}
 
 	// if all tools are present and verified
@@ -98,9 +111,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Error != nil {
 			return printErrorAndExit(m, msg, "error installing/verifying tools")
 		}
-		m.state = StateDownloading // TODO: Prompt user for imput and search
+		m.state = StateUserInput
+		m.ti.Focus()
 		// start downloading and listen for progress
-		return m, tea.Batch(m.initiateDownload, listenForProgress(m.progressChan))
+		return m, nil //tea.Batch(m.initiateDownload, listenForProgress(m.progressChan))
 
 	case MsgProgress:
 		return handleProgress(m, msg)
@@ -132,8 +146,7 @@ func (m model) View() string {
 		return doneStyle.Render(m.spinner.View() + " installing dependencies...\n")
 
 	case StateUserInput:
-		// TODO: prompt user for input
-		return ""
+		return m.ti.View()
 
 	case StateDownloading:
 		return handleDownloadingView(m)
@@ -152,6 +165,26 @@ func (m model) initiateDownload() tea.Msg {
 	result, err := dl.Run(context.TODO(), m.urls...)
 
 	return MsgFinished{Result: result, Error: err}
+}
+
+func (m model) search() tea.Msg {
+	query := m.ti.Value()
+	if query == "" {
+		return MsgFound{nil, errors.New("No query provided. Aborting.")}
+	}
+
+	albums, err := api.Search(query)
+	if err != nil {
+		return MsgFound{nil, err}
+	}
+
+	items := []Item{}
+	for i := range 1 { // TODO: Support downloading multiple items at once
+		item := createItemFromAlbum(albums[i])
+		items = append(items, item)
+	}
+
+	return MsgFound{items, nil}
 }
 
 func handleProgress(m model, msg MsgProgress) (model, tea.Cmd) {

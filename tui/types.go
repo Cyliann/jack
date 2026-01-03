@@ -27,3 +27,16 @@ type MsgToolsVerified struct {
 }
 
 func (m MsgToolsVerified) Err() error { return m.Error }
+
+type MsgFound struct {
+	Items []Item
+	Error error
+}
+
+func (m MsgFound) Err() error { return m.Error }
+
+type Item struct {
+	Title  string
+	Artist string
+	Url    string
+}

@@ -2,10 +2,12 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"regexp"
 	"runtime"
 
+	api "github.com/Cyliann/jack/ytmusicapi"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lrstanley/go-ytdlp"
 )
@@ -58,4 +60,12 @@ func printErrorAndExit[T hasErr](m model, msg T, text string) (model, tea.Cmd) {
 		tea.Printf("%s %s: %s", errorStyle, text, msg.Err()),
 		tea.Quit,
 	)
+}
+
+func createItemFromAlbum(albumResult api.AlbumResult) Item {
+	id := albumResult.Id
+
+	url := fmt.Sprintf("https://music.youtube.com/playlist?list=%s", id)
+
+	return Item{Title: albumResult.Album, Artist: albumResult.Artist, Url: url}
 }

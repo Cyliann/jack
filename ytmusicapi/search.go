@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 )
 
-const API_KEY = "AIzaSyDyT5W0Jh49F30Pqqtyfdf7pDLFKLJoAnw"
 const AlbumSearchParams = "EgWKAQIYAWoQEAkQAxAEEAoQBRAQEBUQEQ=="
 const SongSearchParams = "EgWKAQIIAWoQEAMQBBAEEAoQBRAQEBUQEQ=="
 
@@ -101,7 +99,7 @@ func ParseAlbumResults(jsonBytes []byte) ([]AlbumResult, error) {
 	return results, nil
 }
 
-func Search(query string) []AlbumResult {
+func Search(query string) ([]AlbumResult, error) {
 	payload := map[string]any{
 		"context": map[string]any{
 			"client": map[string]any{
@@ -126,13 +124,13 @@ func Search(query string) []AlbumResult {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	// err = os.WriteFile("response.json", data, 0644)
@@ -142,8 +140,8 @@ func Search(query string) []AlbumResult {
 
 	albums, err := ParseAlbumResults(data)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
-	return albums
+	return albums, nil
 }
