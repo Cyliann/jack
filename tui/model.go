@@ -18,7 +18,7 @@ import (
 )
 
 type model struct {
-	urls         []string
+	items        []Item
 	width        int
 	height       int
 	spinner      spinner.Model
@@ -43,6 +43,7 @@ var (
 func NewModel() model {
 	ti := textinput.New()
 	ti.Placeholder = "Enter your search query"
+	ti.Width = 100
 
 	m := model{
 		spinner: spinner.New(),
@@ -54,22 +55,6 @@ func NewModel() model {
 		state:        StateInstallingDependencies,
 		ti:           ti,
 	}
-
-	// if len(os.Args[1:]) > 0 {
-	// 	query := strings.Join(os.Args[1:], " ")
-	// 	id := api.Search(query)[0].Id
-	// 	m.urls = []string{fmt.Sprintf("https://music.youtube.com/playlist?list=%s", id)}
-	// } else {
-	// 	log.Fatalf("%s No query provided. Aborting.\n", errorStyle)
-	// }
-	//
-	// for _, uri := range m.urls {
-	// 	_, err := url.Parse(uri)
-	// 	if err != nil {
-	// 		fmt.Printf("%s unvalid URL specified %q: %s\n", errorStyle, uri, err) //nolint:forbidigo
-	// 		os.Exit(1)
-	// 	}
-	// }
 
 	m.spinner.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
 
@@ -96,14 +81,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case tea.KeyEnter:
 			if m.state == StateUserInput {
+				m.state = StateDownloading
 				return m, m.search
 			}
-		}
-
-		if m.state == StateUserInput {
-			var cmd tea.Cmd
-			m.ti, cmd = m.ti.Update(msg)
-			return m, cmd
 		}
 
 	// if all tools are present and verified
@@ -111,10 +91,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Error != nil {
 			return printErrorAndExit(m, msg, "error installing/verifying tools")
 		}
-		m.state = StateUserInput
 		m.ti.Focus()
+		m.state = StateUserInput
+		return m, textinput.Blink
+
+	case MsgFound:
+		if msg.Error != nil {
+			return printErrorAndExit(m, msg, "error searching for items")
+		}
+
+		m.items = msg.Items
+
 		// start downloading and listen for progress
-		return m, nil //tea.Batch(m.initiateDownload, listenForProgress(m.progressChan))
+		return m, tea.Batch(m.initiateDownload, listenForProgress(m.progressChan))
 
 	case MsgProgress:
 		return handleProgress(m, msg)
@@ -122,7 +111,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case MsgFinished:
 		m.done = true
 		if msg.Error != nil {
-			return printErrorAndExit(m, msg, "error downloading urls")
+			return printErrorAndExit(m, msg, "error downloading items")
 		}
 		return m, tea.Quit
 
@@ -130,11 +119,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
+
 	case progress.FrameMsg:
 		newModel, cmd := m.progress.Update(msg)
 		if newModel, ok := newModel.(progress.Model); ok {
 			m.progress = newModel
 		}
+		return m, cmd
+	}
+
+	if m.state == StateUserInput {
+		var cmd tea.Cmd
+
+		m.ti, cmd = m.ti.Update(msg)
 		return m, cmd
 	}
 	return m, nil
@@ -146,7 +143,11 @@ func (m model) View() string {
 		return doneStyle.Render(m.spinner.View() + " installing dependencies...\n")
 
 	case StateUserInput:
-		return m.ti.View()
+		return fmt.Sprintf(
+			"%s\n\n%s",
+			m.ti.View(),
+			"(esc to quit)",
+		)
 
 	case StateDownloading:
 		return handleDownloadingView(m)
@@ -162,7 +163,12 @@ func (m model) initiateDownload() tea.Msg {
 		}).
 		Output("%(artists.0)s - %(title)s.%(ext)s")
 
-	result, err := dl.Run(context.TODO(), m.urls...)
+	var urls []string
+	for _, item := range m.items {
+		urls = append(urls, item.Url)
+	}
+
+	result, err := dl.Run(context.TODO(), urls...)
 
 	return MsgFinished{Result: result, Error: err}
 }
@@ -212,11 +218,11 @@ func handleProgress(m model, msg MsgProgress) (model, tea.Cmd) {
 func handleDownloadingView(m model) string {
 
 	if m.lastProgress.Status == "" {
-		return doneStyle.Render(m.spinner.View() + " fetching url information...\n")
+		return doneStyle.Render(m.spinner.View() + " searching...\n")
 	}
 
 	if m.done {
-		return doneStyle.Render(fmt.Sprintf("downloaded %d urls.\n", len(m.urls)))
+		return doneStyle.Render(fmt.Sprintf("downloaded %d items.\n", len(m.items)))
 	}
 
 	// " <spinner> <status> <file> <GAP> <progress> [eta: <eta>] [size: <size>]"
