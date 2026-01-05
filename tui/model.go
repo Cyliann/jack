@@ -212,6 +212,12 @@ func handleProgress(m model, msg MsgProgress) (model, tea.Cmd) {
 			*m.lastProgress.Info.URL,
 		))
 	}
+
+	// listenForProgress() exits with a msg every time there's progress
+	// so we have to call it again every time.
+	// feels like a hack, but I don't know a better way to do it
+	cmds = append(cmds, listenForProgress(m.progressChan))
+
 	return m, tea.Sequence(cmds...)
 }
 
