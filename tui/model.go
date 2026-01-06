@@ -161,6 +161,7 @@ func (m model) initiateDownload() tea.Msg {
 		ProgressFunc(100*time.Millisecond, func(prog ytdlp.ProgressUpdate) {
 			m.progressChan <- MsgProgress{Progress: prog}
 		}).
+		RemuxVideo("opus").
 		Output("%(artists.0)s - %(title)s.%(ext)s")
 
 	var urls []string
