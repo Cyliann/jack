@@ -110,7 +110,9 @@ func (m model) handleKeyboardInput(msg tea.KeyMsg) (model, tea.Cmd) {
 			return m, m.search
 		}
 	}
-	return m, nil
+	var cmd tea.Cmd
+	m.ti, cmd = m.ti.Update(msg)
+	return m, cmd
 }
 
 func (m model) proceedToUserInput(msg MsgToolsVerified) (model, tea.Cmd) {
