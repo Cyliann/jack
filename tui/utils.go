@@ -35,6 +35,9 @@ func listenForProgress(ch chan tea.Msg) tea.Cmd {
 // Note that the download/installation of ffmpeg/ffprobe is only supported on a handful of platforms,
 // and so it is still recommended to install ffmpeg/ffprobe via other means.
 func installDeps() tea.Msg {
+	// FIX: automatic dependency install
+	// for some reason InstallAll() doesn't pull the newest yt-dlp binary
+	return MsgToolsVerified{nil, nil}
 	// On NixOS you cannot run dynamically linked binaries, so we can't install yt-dlp from github.
 	// We rely on it being installed externally and only install ffmpeg
 
