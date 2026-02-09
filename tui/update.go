@@ -31,7 +31,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Error != nil {
 			return printErrorAndExit(m, msg, "error installing/verifying tools")
 		}
-		m, cmd = m.proceedToUserInput(msg)
+		m, cmd = m.proceedToUserInput()
 		return m, cmd
 
 	// got the queried item from innertube
@@ -41,6 +41,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.items = msg.Items
+		m.state = StateDownloading
 
 		// start downloading and listen for progress
 		return m, tea.Batch(m.initiateDownload, listenForProgress(m.progressChan))
@@ -115,7 +116,7 @@ func (m model) handleKeyboardInput(msg tea.KeyMsg) (model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m model) proceedToUserInput(msg MsgToolsVerified) (model, tea.Cmd) {
+func (m model) proceedToUserInput() (model, tea.Cmd) {
 	m.ti.Focus()
 	m.state = StateUserInput
 	return m, textinput.Blink
