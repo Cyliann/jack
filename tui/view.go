@@ -21,6 +21,9 @@ func (m model) View() string {
 			"(esc to quit)",
 		)
 
+	case StateSearching:
+		return doneStyle.Render(m.spinner.View() + " searching...\n")
+
 	case StateDownloading:
 		return getDownloadView(m)
 	}
@@ -30,7 +33,7 @@ func (m model) View() string {
 func getDownloadView(m model) string {
 
 	if m.lastProgress.Status == "" {
-		return doneStyle.Render(m.spinner.View() + " searching...\n")
+		return doneStyle.Render(m.spinner.View() + " downloading...\n")
 	}
 
 	if m.done {

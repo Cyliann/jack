@@ -7,6 +7,7 @@ type AppState int
 const (
 	StateInstallingDependencies AppState = iota
 	StateUserInput
+	StateSearching
 	StateDownloading
 )
 

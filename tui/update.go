@@ -106,8 +106,9 @@ func (m model) handleKeyboardInput(msg tea.KeyMsg) (model, tea.Cmd) {
 	case tea.KeyCtrlC, tea.KeyEscape:
 		return m, tea.Quit
 	case tea.KeyEnter:
+		// user submits search query
 		if m.state == StateUserInput {
-			m.state = StateDownloading
+			m.state = StateSearching
 			return m, m.search
 		}
 	}
